@@ -73,3 +73,57 @@ Returns:
 ## Sugerencias
 * Para medir la memoria en uso te recomendamos [memory-profiler](https://pypi.org/project/memory-profiler/) o [memray](https://github.com/bloomberg/memray)
 * Para medir el tiempo de ejecución te recomendamos [py-spy](https://github.com/benfred/py-spy) o [Python Profilers](https://docs.python.org/3/library/profile.html)
+
+---
+
+## Notas de implementacion
+
+### flujo de trabajo
+1. **EDA** — primero explore el dataset para entender la estructura, los campos relevantes y los datos faltantes. todo esta documentado en `src/challenge.ipynb`
+2. **implementacion** — resolvi cada pregunta en su propia branch (`feature/q1`, `feature/q2`, `feature/q3`), con dos variantes por pregunta: una optimizada en tiempo y otra en memoria
+3. **branching** — use gitflow: `main` para version final, `develop` como integracion, y feature branches para cada pieza de trabajo. las branches no se borran
+4. **CI** — agregue una github action que valida que todos los imports funcionen en cada push/PR
+
+### enfoque general
+- uso orjson para parsear el JSON (mas rapido que json estandar)
+- todas las funciones leen el archivo en modo streaming (linea a linea) usando el formato JSON Lines
+- extraigo la fecha como string ([:10]) sin parsear a datetime, mas rapido y suficiente para agrupar
+
+### decisiones tecnicas
+- Q1: la variante `_time` guarda todos los usuarios en memoria con defaultdict(Counter). la variante `_memory` hace dos pasadas al archivo, solo trackeando usuarios de las top 10 fechas
+- Q2: uso `emoji.emoji_list()` para deteccion precisa de emojis unicode. cada aparicion individual cuenta
+- Q3: uso el campo `mentionedUsers` del JSON en vez de regex sobre el texto, porque ya viene pre-parseado por snscrape
+
+### consideraciones cloud
+
+si este dataset creciera a escala produccion (millones de tweets, actualizacion diaria), el enfoque local no escala. una arquitectura cloud podria ser:
+
+**ingesta y almacenamiento**
+- subir los JSON a Google Cloud Storage (GCS)
+- usar un formato columnar como Parquet para reducir tamaño y acelerar queries
+
+**procesamiento**
+- BigQuery: cargar los datos y resolver las 3 preguntas con SQL puro, sin preocuparme por memoria ni tiempo — BigQuery escala automaticamente
+- alternativa: Apache Spark en Dataproc o EMR para procesamiento distribuido si necesito transformaciones mas complejas
+
+**orquestacion**
+- Cloud Composer (Airflow) o Cloud Functions para automatizar la ingesta y el procesamiento diario
+
+**ejemplo BigQuery para Q1:**
+```sql
+SELECT date, username, tweet_count
+FROM (
+    SELECT 
+        DATE(PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%S+00:00', date)) AS date,
+        JSON_VALUE(user, '$.username') AS username,
+        COUNT(*) AS tweet_count,
+        ROW_NUMBER() OVER (PARTITION BY DATE(PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%S+00:00', date)) ORDER BY COUNT(*) DESC) AS rn
+    FROM tweets
+    GROUP BY 1, 2
+)
+WHERE rn = 1
+ORDER BY tweet_count DESC
+LIMIT 10
+```
+
+no implemente la version cloud porque el dataset actual (389MB) se procesa en menos de 10 segundos localmente, pero la arquitectura esta pensada para escalar.

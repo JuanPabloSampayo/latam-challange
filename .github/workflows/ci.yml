@@ -1,0 +1,31 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: validar imports q1
+        run: |
+          python -c "from src.q1_time import q1_time; print('q1_time ok')"
+          python -c "from src.q1_memory import q1_memory; print('q1_memory ok')"
+
+      - name: validar imports q2
+        run: |
+          python -c "from src.q2_time import q2_time; print('q2_time ok')"
+          python -c "from src.q2_memory import q2_memory; print('q2_memory ok')"
+
+      - name: validar imports q3
+        run: |
+          python -c "from src.q3_time import q3_time; print('q3_time ok')"
+          python -c "from src.q3_memory import q3_memory; print('q3_memory ok')"
